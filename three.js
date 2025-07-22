@@ -1,10 +1,9 @@
-import * as THREE from "three";
-import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
-import RAPIER from "@dimforge/rapier3d-compat";
-import vertexShader from "./shaders/vertexShader.glsl";
-import fragmentShader from "./shaders/fragmentShader.glsl";
-import { getRandomColor } from "./utils.js";
-import { generateRandomGeometry } from "./generateGeo.js";
+import * as THREE from "three/webgpu";
+import img1 from "/1.jpg"
+import img2 from "/2.jpg"
+import { Fn, vec4, uv, texture, mix, uniform, vec2, vec3, abs, max, dot, step, smoothstep, cos, sin, floor, float, length, pow, oneMinus, mx_noise_float, remap } from "three/tsl";
+import GUI from 'lil-gui';
+
 
 class Sketch {
   constructor(containerId) {
@@ -17,15 +16,9 @@ class Sketch {
     this.scene = this.createScene();
     this.camera = this.createCamera();
     this.renderer = this.createRenderer();
-    this.controls = this.addOrbitControls();
-    this.gravity = null;
-    this.world = null;
-    this.RAPIER = null;
-    // this.cube = this.createCube(); // Удаляем сферу
-    this.tubesData = this.createTubesData(50); // tubesData вместо tubesGroup
-    this.tubesGroup = new THREE.Group();
-    this.tubesData.forEach(tube => this.tubesGroup.add(tube.mesh));
+    this.cube = this.createCube();
     this.clock;
+    this.time = 0;
 
     this.mousePos = new THREE.Vector2(0, 0);
 
@@ -41,11 +34,11 @@ class Sketch {
     // Добавляем объекты на сцену
     this.addObjects();
 
+    // Добавляем GUI для управления переходом
+    this.addGUI();
+
     // Обработчики событий
     this.addEventListeners();
-
-    // Добавляем освещение
-    this.addLight();
 
     // Запуск анимации
     this.animate();
@@ -54,24 +47,23 @@ class Sketch {
   // Создание сцены
   createScene() {
     const scene = new THREE.Scene();
-    scene.background = new THREE.Color(0x686868);
     return scene;
   }
 
   // Создание камеры
   createCamera() {
-    const fov = 75;
-    const aspect = this.width / this.height;
-    const near = 0.1;
-    const far = 1000;
-    const camera = new THREE.PerspectiveCamera(fov, aspect, near, far);
-    camera.position.set(1, 1, 1);
+    // swith to ortographic camera
+    let frustumSize = 1;
+    let aspect = 1;
+
+    const camera = new THREE.OrthographicCamera(frustumSize * aspect / -2, frustumSize * aspect / 2, frustumSize / 2, frustumSize / -2, -1000, 1000);
+    camera.position.set(0, 0, 2);
     return camera;
   }
 
   // Создание рендера
   createRenderer() {
-    const renderer = new THREE.WebGLRenderer();
+    const renderer = new THREE.WebGPURenderer();
     renderer.setSize(this.width, this.height);
 
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
@@ -86,151 +78,132 @@ class Sketch {
     return renderer;
   }
 
-  async initPhysics() {
-    this.RAPIER = await RAPIER.init();
-    this.gravity = { x: 0.0, y: 0, z: 0.0 };
-    this.world = new RAPIER.World(this.gravity);
+
+  createCube() {
+    let texture1 = new THREE.TextureLoader().load(img1);
+    let texture2 = new THREE.TextureLoader().load(img2);
+
+    const uTransition = uniform(float(0))
+    const uTime = uniform(float(0))
+    this.transition = uTransition;
+    this.timeUniform = uTime;
+    this.transitionValue = 0; // Значение для GUI
+
+    const geo = new THREE.PlaneGeometry(1, 1, 1, 1);
+    this.material = new THREE.NodeMaterial();
+
+
+    const hexDistance = Fn(([uv]) => {
+      const s = vec2(1, 1.7320508075688772)
+      const p = uv.toVar().abs()
+      return max(dot(p,s.mul(0.5)), p.x)
+    })
+
+    const hexCoorinates = Fn(([uv]) => {
+      const s = vec2(1, 1.7320508075688772)
+      const hexCenter = sround(
+        vec4(uv, uv.toVar().sub(vec2(0.5, 1))).div(s.xyxy)
+      )
+      const offset = vec4(
+        uv.sub(hexCenter.xy.mul(s)),
+        uv.sub(hexCenter.zw.add(vec2(0.5)).mul(s))
+      )
+
+      const dot1 = dot(offset.xy, offset.xy)
+      const dot2 = dot(offset.zw, offset.zw)
+      const final1 = vec4(offset.xy, hexCenter.xy)
+      const final2 = vec4(offset.zw, hexCenter.zw)
+      const diff = dot1.sub(dot2)
+      const final = mix(final1, final2, step(0, diff))
+
+      return final
+    })
+
+    const sround = Fn(([s])=>{
+      return floor(s.add(0.5))
+    })
+
+
+
+    const scaleUV = Fn(([uv, scale])=>{
+      return uv.toVar().sub(vec2(0.5)).mul(scale).add(vec2(0.5));
+    })
+
+
+    this.material.colorNode = Fn(()=>{
+      const corUV = scaleUV(uv(), vec2(1, this.height / this.width))
+      const distUV = scaleUV(corUV, vec2(float(1).add(length(uv().sub(0.5)))))
+
+      const hexUV = distUV.mul(20)
+      const hexCoords = hexCoorinates(hexUV)
+
+      const hexDist = hexDistance(hexCoords.xy).add(0.03)
+
+      const border = smoothstep(0.51, 0.51 + 0.01, hexDist)
+
+      const y = pow(max(0, float(0.5).sub(hexDist)).oneMinus(), 10).mul(1.5)
+      const z = mx_noise_float(abs(hexCoords.zw.mul(0.6)))
+
+      const offset = float(0.2)
+      const bounceTransition = smoothstep(0, 0.5, abs(uTransition.sub(0.5))).oneMinus();
+
+
+      const blendCut = smoothstep(
+        uv().y.sub(offset),
+        uv().y.add(offset),
+        remap(uTransition.add(z.mul(0.08).mul(bounceTransition)), 0, 1, offset.mul(-1), float(1).add(offset))
+      )
+
+      const merge = smoothstep(0, 0.5, abs(blendCut.sub(0.5))).oneMinus()
+
+      const cut = step(uv().y, uTransition.add(y.add(z).mul(0.15).mul(bounceTransition)))
+
+      const textureUV = corUV.add(
+        y.mul(sin(uv().y.mul(5).sub(uTime))).mul(merge).mul(0.025)
+      )
+
+      const fromUV = textureUV.toVar()
+      const toUV = textureUV.toVar()
+
+      fromUV.assign(
+        scaleUV(fromUV.toVar(), vec2(float(1).add(z.mul(0.2).mul(merge))))
+      )
+
+      toUV.assign(
+        scaleUV(toUV.toVar(), vec2(float(1).add(z.mul(0.2).mul(blendCut))))
+      )
+
+      const colorBlend = merge.mul(border).mul(bounceTransition)
+
+
+
+      const sample1 = texture(texture1, toUV )
+      const sample2 = texture(texture2, fromUV)
+
+      const final = mix(sample1, sample2, cut)
+
+      final.addAssign(
+        vec4(1, 0.4, 0).mul(colorBlend).mul(2)
+      )
+
+      return final
+    })()
+
+    const mesh = new THREE.Mesh(geo, this.material);
+    mesh.position.set(0,0,0)
+    return mesh;
   }
 
-  addLight() {
-    // Основной мягкий свет
-    const hemiLight = new THREE.HemisphereLight(0x099ff, 0xaa5500, 0.7);
-    this.scene.add(hemiLight);
-    // Яркий направленный свет
-    const dirLight = new THREE.DirectionalLight(0xffffff, 0.7);
-    dirLight.position.set(2, 2, 2);
-    this.scene.add(dirLight);
-    // Точечный свет для бликов
-    const pointLight = new THREE.PointLight(0xffffff, 0.8, 10);
-    pointLight.position.set(-2, 2, 2);
-    this.scene.add(pointLight);
-    // this.scene.fog = new THREE.FogExp2(0x000000, 0.3);
-  }
-
-  // Создание группы трубок, каждая из которых — уникальная незамкнутая кривая на сфере
-  createTubesGroup(count) {
-    const group = new THREE.Group();
-    const radius = 0.5;
-    const tubeRadius = 0.005;
-    const tubularSegments = 256;
-    const radialSegments = 12;
-    // Стартовая точка (северный полюс)
-    const start = new THREE.Vector3(0, 0, radius);
-    for (let i = 0; i < count; i++) {
-      // Уникальное направление для каждой трубки
-      const theta = Math.acos(1 - 2 * (i + 0.5) / count);
-      const phi = Math.PI * (1 + Math.sqrt(5)) * i;
-      const dir = new THREE.Vector3(
-        Math.sin(theta) * Math.cos(phi),
-        Math.sin(theta) * Math.sin(phi),
-        Math.cos(theta)
-      ).normalize();
-      // Ортонормированный базис для большого круга
-      const up = Math.abs(dir.y) < 0.99 ? new THREE.Vector3(0, 1, 0) : new THREE.Vector3(1, 0, 0);
-      const tangent = new THREE.Vector3().crossVectors(up, dir).normalize();
-      const bitangent = new THREE.Vector3().crossVectors(dir, tangent).normalize();
-      // Случайная длина дуги (от 90° до 270°)
-      const arc = Math.PI / 2 + Math.random() * Math.PI;
-      const points = [];
-      const len = 200;
-      for (let j = 0; j < len; j++) {
-        const t = (j / (len - 1)) * arc;
-        // Дуга большого круга, стартуя из северного полюса
-        // Вращаем стартовую точку вокруг оси dir на угол t
-        // Формула: p = cos(t)*start + sin(t)*(tangent) + (1-cos(t))*(dir·start)*dir
-        // Но проще: строим дугу в плоскости, проходящей через start и dir
-        const x = Math.cos(t) * start.x + Math.sin(t) * tangent.x * radius;
-        const y = Math.cos(t) * start.y + Math.sin(t) * tangent.y * radius;
-        const z = Math.cos(t) * start.z + Math.sin(t) * tangent.z * radius;
-        // Поворачиваем эту точку вокруг оси dir на угол, соответствующий текущей трубке
-        const point = new THREE.Vector3(x, y, z).applyAxisAngle(dir, phi).normalize().multiplyScalar(radius);
-        points.push(point);
-      }
-      const geometry = new THREE.TubeGeometry(new THREE.CatmullRomCurve3(points, false), tubularSegments, tubeRadius, radialSegments, false);
-      const material = new THREE.MeshPhysicalMaterial({
-        color: getRandomColor(),
-        roughness: 0.1,
-        metalness: 1.0,
-        reflectivity: 1.0,
-        clearcoat: 0.7,
-        clearcoatRoughness: 0.05,
-        transmission: 0.0,
-        ior: 1.45,
-      });
-      const mesh = new THREE.Mesh(geometry, material);
-      group.add(mesh);
-    }
-    group.position.set(0, 0, 0);
-    return group;
-  }
-
-  // tubesData: [{points, mesh, progress, delay, speed, ...}]
-  createTubesData(count) {
-    const tubes = [];
-    const radius = 0.5;
-    const tubeRadius = 0.005;
-    const tubularSegments = 256;
-    const radialSegments = 12;
-    const start = new THREE.Vector3(0, 0, radius);
-    const minArc = Math.PI * 2 / 3; // минимум 120 градусов
-    const maxArc = Math.PI * 1.5;   // максимум 270 градусов
-    for (let i = 0; i < count; i++) {
-      const theta = Math.acos(1 - 2 * (i + 0.5) / count);
-      const phi = Math.PI * (1 + Math.sqrt(5)) * i;
-      const dir = new THREE.Vector3(
-        Math.sin(theta) * Math.cos(phi),
-        Math.sin(theta) * Math.sin(phi),
-        Math.cos(theta)
-      ).normalize();
-      const up = Math.abs(dir.y) < 0.99 ? new THREE.Vector3(0, 1, 0) : new THREE.Vector3(1, 0, 0);
-      const tangent = new THREE.Vector3().crossVectors(up, dir).normalize();
-      // Длина дуги: минимум 120°, максимум 270°
-      const arc = minArc + Math.random() * (maxArc - minArc);
-      const points = [];
-      const len = 200;
-      for (let j = 0; j < len; j++) {
-        const t = (j / (len - 1)) * arc;
-        const x = Math.cos(t) * start.x + Math.sin(t) * tangent.x * radius;
-        const y = Math.cos(t) * start.y + Math.sin(t) * tangent.y * radius;
-        const z = Math.cos(t) * start.z + Math.sin(t) * tangent.z * radius;
-        const point = new THREE.Vector3(x, y, z).applyAxisAngle(dir, phi).normalize().multiplyScalar(radius);
-        points.push(point);
-      }
-      const geometry = new THREE.TubeGeometry(new THREE.CatmullRomCurve3([points[0], points[1]], false), 1, tubeRadius, radialSegments, false);
-      const material = new THREE.MeshPhysicalMaterial({
-        color: getRandomColor(),
-        roughness: 0.1,
-        metalness: 1.0,
-        reflectivity: 1.0,
-        clearcoat: 0.7,
-        clearcoatRoughness: 0.05,
-        transmission: 0.0,
-        ior: 1.45,
-      });
-      const mesh = new THREE.Mesh(geometry, material);
-      mesh.visible = true;
-      tubes.push({
-        points,
-        mesh,
-        progress: 0,
-        delay: Math.random() * 1.5,
-        speed: 0.7 + Math.random() * 0.7,
-        state: 'drawing',
-        eraseDelay: 0.3 + Math.random() * 0.5, // пауза между циклами
-        eraseTimer: 0
-      });
-    }
-    return tubes;
-  }
-
-  // Добавление OrbitControls
-  addOrbitControls() {
-    return new OrbitControls(this.camera, this.renderer.domElement);
+  addGUI() {
+    this.gui = new GUI();
+    this.gui.add(this, 'transitionValue', 0, 1, 0.01).name('Transition').onChange((value) => {
+      // Обновляем uniform
+      this.transition.value = value;
+    });
   }
 
   addObjects() {
-    // this.scene.add(this.cube);
-    this.scene.add(this.tubesGroup);
+    this.scene.add(this.cube);
   }
 
   // Обработчик изменения размеров окна
@@ -257,68 +230,16 @@ class Sketch {
 
   // Анимация
   animate() {
+    this.time += 0.01;
+    this.timeUniform.value = this.time;
+
     requestAnimationFrame(this.animate.bind(this));
-    const delta = this.clock.getDelta();
-    this.tubesGroup.rotation.z += delta * 0.5;
-    this.tubesGroup.rotation.y += delta * 0.7;
-    for (let i = 0; i < this.tubesData.length; i++) {
-      const tube = this.tubesData[i];
-      if (tube.state === 'waiting') {
-        tube.eraseTimer -= delta;
-        if (tube.eraseTimer <= 0) {
-          tube.state = 'drawing';
-          tube.progress = 0;
-          tube.mesh.material.color = getRandomColor();
-        } else {
-          tube.mesh.visible = false;
-          continue;
-        }
-      }
-      if (tube.state === 'drawing') {
-        tube.mesh.visible = true;
-        tube.progress += delta * tube.speed;
-        const total = tube.points.length;
-        const visibleCount = Math.max(2, Math.floor(tube.progress * total));
-        tube.mesh.geometry.dispose();
-        tube.mesh.geometry = new THREE.TubeGeometry(
-          new THREE.CatmullRomCurve3(tube.points.slice(0, visibleCount), false),
-          visibleCount - 1,
-          tube.mesh.geometry.parameters.radius,
-          tube.mesh.geometry.parameters.radialSegments,
-          false
-        );
-        if (visibleCount >= total) {
-          tube.state = 'erasing';
-          tube.eraseProgress = 0; // новый прогресс для стирания
-        }
-      }
-      if (tube.state === 'erasing') {
-        tube.eraseProgress = (tube.eraseProgress || 0) + delta * tube.speed;
-        const total = tube.points.length;
-        const startIdx = Math.min(Math.floor(tube.eraseProgress * total), total - 2);
-        const visibleCount = total - startIdx;
-        tube.mesh.geometry.dispose();
-        tube.mesh.geometry = new THREE.TubeGeometry(
-          new THREE.CatmullRomCurve3(tube.points.slice(startIdx), false),
-          Math.max(1, visibleCount - 1),
-          tube.mesh.geometry.parameters.radius,
-          tube.mesh.geometry.parameters.radialSegments,
-          false
-        );
-        if (startIdx >= total - 2) {
-          tube.state = 'waiting';
-          tube.eraseTimer = tube.eraseDelay;
-          tube.mesh.visible = false;
-        }
-      }
-    }
-    this.controls.update();
-    this.renderer.render(this.scene, this.camera);
+    this.renderer.renderAsync(this.scene, this.camera);
   }
 }
 
 // Запуск инициализации, передаем id элемента
 export default Sketch;
 
-// Чтобы запустить, просто нужно создать экземпляр класса
+// Чтобы запустить, просто нужно создать экземпляfр класса
 // const sketch = new Sketch('canvas');
