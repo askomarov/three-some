@@ -1,15 +1,38 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
   <head>
-    <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta charset="UTF-8">
+    <link rel="icon" type="image/svg+xml" href="/vite.svg">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Vite App</title>
   </head>
   <body>
-    <main>
+    <main class="main">
       <h1>helloo</h1>
-      <div id="canvas"></div>
+      <div class="trigger-for-transition">
+        <section>
+          <div class="container">
+            <h2>Section one</h2>
+            <p>Three.js Hex Transition Demo. Этот проект — интерактивная визуализация на WebGL с использованием Three.js, демонстрирующая плавный переход между двумя изображениями с помощью гексагонального паттерна и анимаций.</p>
+          </div>
+
+        </section>
+        <section>
+          <div class="container">
+            <h2>Section two</h2>
+            <p>Переход управляется прогрессом скролла по основному блоку страницы. В проекте используются современные технологии для анимаций и управления состоянием: Three.js (WebGPU, NodeMaterial/TSL), GSAP и ScrollTrigger, Vite.</p>
+          </div>
+
+        </section>
+      </div>
+      <section class="section-three">
+        <div class="container">
+          <h2>Section three</h2>
+          <p>Ключевые особенности: плавный hex-переход между изображениями, реакция на скролл</p>
+        </div>
+
+      </section>
+      <div id="canvas" class="transition-canvas"></div>
     </main>
     <script type="module" src="/main.js"></script>
   </body>

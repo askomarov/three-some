@@ -12,6 +12,13 @@
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
 
 a {
   font-weight: 500;
@@ -30,6 +37,10 @@ body {
   min-height: 100vh;
 }
 
+main {
+  width: 100%;
+}
+
 h1 {
   font-size: 3.2em;
   line-height: 1.1;
@@ -45,7 +56,6 @@ h1 {
   }
 }
 
-
 #canvas {
   position: relative;
   display: block;
@@ -59,4 +69,38 @@ h1 {
   left: 2rem;
   z-index: 2;
   color: tomato;
+}
+.trigger-for-transition {
+  position: relative;
+}
+#canvas.transition-canvas {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 1;
+}
+section {
+  min-height: 100dvh;
+  width: 100%;
+  position: relative;
+  z-index: 2;
+  display: grid;
+  padding: 2rem;
+  place-items: center;
+  color: #fff;
+  text-align: center;
+}
+
+h2 {
+  font-size: 4rem;
+}
+p {
+  font-size: 1.5rem;
+  font-weight: 600;
+  background-color: rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(10px);
+}
+
+.section-three {
+  background-color: #000;
 }
